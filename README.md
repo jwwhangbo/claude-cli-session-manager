@@ -61,10 +61,12 @@ In the picker, press `?` to see every key:
 - **Select:** `Tab` selects and moves down, `Shift+Tab` deselects and moves up, `Ctrl+A` selects all visible, `Esc` clears the selection
 - **Act:** `s` star, `t` tag, `r` rename, `a` archive, `d` delete, `e` export, `+`/`-` add to or remove from a group, `v` grouped view; `q` quits
 
+Rename, tag, group and delete open a floating dialog over the list. Confirmations (delete, dissolve a group) take `y` to go ahead, and `n` or `Esc` to cancel.
+
 ### Groups
 
 Groups are named collections you create yourself, for example one per feature or ticket. A session can be in several groups.
-- **Create or add:** select sessions with `Tab` (or leave the cursor on one), press `+` and type a group name. An existing name adds to that group; a new name creates it.
+- **Create or add:** select sessions with `Tab` (or leave the cursor on one), press `+`. The dialog lists your existing groups under the input, most recently active first; typing filters them. Pick one with `↑`/`↓` (`Tab` copies its name into the input) or type a new name to create it, then press `Enter`.
 - **Grouped view:** `v` switches between flat and grouped. Groups are listed by most recent activity, with **Ungrouped** last.
 - **On a group header:**
   - `Enter`/`Space` collapses or expands it (collapsed state is remembered).

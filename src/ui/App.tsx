@@ -1,7 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import TextInput from "ink-text-input";
 import { basename } from "node:path";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { archiveSession, deleteSession, exportSession, renameSession, tagSession, unarchiveSession } from "../core/actions.ts";
 import { loadSessions, type SessionRecord } from "../core/index.ts";
 import type { LaunchRequest } from "../core/launch.ts";
@@ -12,6 +12,7 @@ import { cleanText } from "../core/paths.ts";
 import { fit } from "./format.ts";
 import { buildGroupLines, buildPreviewLines, Preview } from "./Preview.tsx";
 import { buildRows, groupLabel, UNGROUPED } from "./rows.ts";
+import { Modal, modalHeight } from "./Modal.tsx";
 import { SessionList } from "./SessionList.tsx";
 
 type Mode = "list" | "preview" | "search" | "rename" | "tag" | "delete" | "addGroup" | "renameGroup" | "dissolve" | "help";
@@ -33,7 +34,7 @@ const HELP: [string, string][] = [
   ["* / A", "starred only / show archived"],
   ["s", "star          t  tag           r  rename"],
   ["a", "archive (or restore in archive view)"],
-  ["d", "delete permanently (type 'delete' to confirm)"],
+  ["d", "delete permanently (asks y/N)"],
   ["e", "export transcript to markdown in the current dir"],
   ["v", "toggle grouped / flat view"],
   ["+ / -", "add to a group (new name creates it) / remove from this group"],
@@ -62,6 +63,7 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
   const [marked, setMarked] = useState<Set<string>>(() => new Set());
   const [previewScroll, setPreviewScroll] = useState(0);
   const [input, setInput] = useState("");
+  const [pick, setPick] = useState(0);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | undefined>();
   const [transcript, setTranscript] = useState<{ key: string; items: TranscriptItem[] }>();
   const transcriptCache = useRef(new Map<string, TranscriptItem[]>());
@@ -195,7 +197,31 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
     setMeta(loadMeta());
   };
 
-  const textModes: Mode[] = ["search", "rename", "tag", "delete", "addGroup", "renameGroup"];
+  // The group picker: existing groups matching the typed name (most recently active first), plus a
+  // "create" option first when the name is new.
+  const groupOptions = useMemo(() => {
+    if (mode !== "addGroup") return [];
+    const typed = cleanText(input);
+    const needle = typed.toLowerCase();
+    const updated = new Map(sessions.map((s) => [s.id, s.updated]));
+    const latest = (name: string) => Math.max(0, ...groups[name]!.map((id) => updated.get(id) ?? 0));
+    const matches = groupNames.filter((n) => n.toLowerCase().includes(needle)).sort((a, b) => +(b.toLowerCase() === needle) - +(a.toLowerCase() === needle) || latest(b) - latest(a));
+    const create = typed && !groups[typed] ? [{ name: typed, create: true }] : [];
+    return [...create, ...matches.map((name) => ({ name, create: false }))];
+  }, [mode, input, groups, sessions]);
+
+  useInput(
+    (ch, key) => {
+      const last = groupOptions.length - 1;
+      if (key.downArrow || (key.ctrl && ch === "n")) setPick((p) => (p >= last ? 0 : p + 1));
+      if (key.upArrow || (key.ctrl && ch === "p")) setPick((p) => (p <= 0 ? last : p - 1));
+      // Tab completes the input to the highlighted group's name.
+      if (key.tab && groupOptions[pick]) setInput(groupOptions[pick].name), setPick(0);
+    },
+    { isActive: mode === "addGroup" },
+  );
+
+  const textModes: Mode[] =["search", "rename", "tag", "addGroup", "renameGroup"];
 
   // Esc backs out of any text-entry mode.
   useInput(
@@ -208,14 +234,23 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
     { isActive: textModes.includes(mode) },
   );
 
-  // y/N confirmation for dissolving a group.
+  // y/N confirmation for deleting sessions and dissolving a group; other keys are ignored.
   useInput(
-    (ch) => {
-      setMode("list");
-      if (!header || ch.toLowerCase() !== "y") return setStatus({ text: "Kept the group" });
-      run(`Dissolved "${header.group}" (sessions kept)`, () => dissolveGroup(header.group));
+    (ch, key) => {
+      const c = ch.toLowerCase();
+      if (c === "y") {
+        setMode("list");
+        if (mode === "dissolve" && header) run(`Dissolved "${header.group}" (sessions kept)`, () => dissolveGroup(header.group));
+        if (mode === "delete") {
+          const list = targets();
+          runEach("Deleted", list, deleteSession, { clear: true, keepKey: neighborKey(new Set(list.map((s) => s.id))) });
+        }
+      } else if (c === "n" || c === "q" || key.escape || key.return) {
+        setMode("list");
+        setStatus({ text: mode === "delete" ? "Delete cancelled" : "Kept the group" });
+      }
     },
-    { isActive: mode === "dissolve" },
+    { isActive: mode === "delete" || mode === "dissolve" },
   );
 
   useInput(
@@ -293,7 +328,7 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
           return setBranchFilter(on ? current.gitBranch : undefined);
         }
         if (ch === "r") return setInput(current.titleSource === "custom" ? current.title : ""), setMode("rename");
-        if (ch === "d") return setInput(""), setMode("delete");
+        if (ch === "d") return setMode("delete");
       }
 
       const list = targets();
@@ -308,7 +343,7 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
         const tags = new Set(list.map((s) => s.tag ?? ""));
         return setInput(tags.size === 1 ? [...tags][0]! : ""), setMode("tag");
       }
-      if (ch === "+") return setInput(""), setMode("addGroup");
+      if (ch === "+") return setInput(""), setPick(0), setMode("addGroup");
       if (ch === "-") {
         // Remove from the group this row sits under; in the flat view or Ungrouped, from every group.
         const group = row.group || undefined;
@@ -340,18 +375,15 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
     const list = targets();
     if (mode === "rename" && current && text) run("Renamed", () => renameSession(current, text));
     if (mode === "tag") runEach(text ? `Tagged #${text}:` : "Cleared tag on", list, (s) => tagSession(s, text));
-    if (mode === "delete" && current) {
-      if (text !== "delete") return setStatus({ text: "Delete cancelled" });
-      runEach("Deleted", list, deleteSession, { clear: true, keepKey: neighborKey(new Set(list.map((s) => s.id))) });
-    }
     if (mode === "addGroup") {
-      if (!text) return setStatus({ text: "Cancelled" });
+      const name = groupOptions[pick]?.name;
+      if (!name) return setStatus({ text: "Cancelled" });
       const ids = list.map((s) => s.id);
       run("Grouped", () => {
-        addToGroup(text, ids);
+        addToGroup(name, ids);
         setMarked(new Set());
         setGrouped(true);
-        return `Added ${plural(ids.length)} to "${text}"`;
+        return `Added ${plural(ids.length)} to "${name}"`;
       });
     }
     if (mode === "renameGroup" && header && text && text !== header.group) {
@@ -387,25 +419,108 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
   }
 
   const count = selection.length;
-  const scope = count ? `${count} selected` : header ? `group "${groupLabel(header.group)}"` : "";
-  const existing = groupNames.length ? ` (existing: ${fit(groupNames.join(", "), 40).trimEnd()})` : "";
-  const inputPrompt = {
-    search: "/",
-    rename: "Rename: ",
-    tag: `Tag${scope ? " " + scope : ""} (empty clears): #`,
-    delete: `Type 'delete' to permanently remove ${count ? plural(count) : "this session"}: `,
-    addGroup: `Add ${scope || "session"} to group${existing}: `,
-    renameGroup: "Rename group: ",
-  }[mode as string];
 
   let hint: string;
   if (mode === "preview") hint = "↑↓/PgUp/PgDn scroll · g/G top/bottom · Enter resume · ←/h back";
-  else if (mode === "dissolve") hint = "";
   else if (count > 0)
     hint = `${count} selected: + group · - ungroup · s star · t tag · a ${showArchived ? "restore" : "archive"} · d delete · e export · Esc clear`;
   else if (header)
     hint = "Enter/Space collapse · Tab select group · + add to another group · r rename · d dissolve · s t a e act on the group";
   else hint = "Enter resume · f fork · / search · Tab select · + group · v view · →/l preview · s star · r rename · a archive · d delete · ? help";
+
+  const dialog = buildDialog();
+  const dialogW = Math.min(columns - 2, 64);
+  const dialogH = dialog ? modalHeight(dialog.rows.length) : 0;
+
+  /** The floating window for action dialogs (rename, tag, group, confirmations). Search stays in the footer. */
+  function buildDialog(): { title: string; color?: string; rows: ReactNode[] } | undefined {
+    const inner = Math.min(columns - 2, 64) - 4;
+    const list = targets();
+    const what = count ? plural(count) : header ? `group "${groupLabel(header.group)}"` : `"${fit(current?.title ?? "", inner - 20).trimEnd()}"`;
+    const hintRow = (text: string) => <Text dimColor>{text}</Text>;
+    const inputRow = (prefix: string, onChange: (v: string) => void = setInput) => (
+      <Box>
+        <Text color="cyan">{prefix}</Text>
+        <TextInput value={input} onChange={onChange} onSubmit={submitInput} />
+      </Box>
+    );
+    const yesNo = (verb: string, color: string) => (
+      <Text>
+        <Text color={color} bold>y</Text>
+        <Text dimColor> {verb} · </Text>
+        <Text bold>n</Text>
+        <Text dimColor>/Esc cancel</Text>
+      </Text>
+    );
+
+    if (mode === "rename" && current)
+      return { title: "Rename session", rows: [inputRow("› "), <Text> </Text>, hintRow("Enter save · Esc cancel")] };
+    if (mode === "tag")
+      return { title: `Tag ${what}`, rows: [inputRow("#"), <Text> </Text>, hintRow("Enter save · empty clears the tag · Esc cancel")] };
+    if (mode === "renameGroup" && header)
+      return { title: `Rename group "${header.group}"`, rows: [inputRow("› "), <Text> </Text>, hintRow("Enter save · an existing name merges · Esc cancel")] };
+    if (mode === "delete") {
+      const shown = list.slice(0, 5);
+      return {
+        title: "Delete",
+        color: "red",
+        rows: [
+          <Text>Permanently delete {count ? plural(count) : "this session"}?</Text>,
+          ...shown.map((s) => <Text dimColor>  • {fit(s.title, inner - 4).trimEnd()}</Text>),
+          ...(list.length > shown.length ? [<Text dimColor>  … and {list.length - shown.length} more</Text>] : []),
+          <Text> </Text>,
+          yesNo("delete", "red"),
+        ],
+      };
+    }
+    if (mode === "dissolve" && header) {
+      return {
+        title: "Dissolve group",
+        color: "yellow",
+        rows: [
+          <Text>Dissolve "{header.group}"?</Text>,
+          <Text dimColor>Only the group is removed; its {plural(header.ids.length)} are kept.</Text>,
+          <Text> </Text>,
+          yesNo("dissolve", "yellow"),
+        ],
+      };
+    }
+    if (mode === "addGroup") {
+      const ids = list.map((s) => s.id);
+      // Keep the highlighted option in view when the list is longer than the window.
+      const room = Math.max(1, Math.min(8, bodyH - 5));
+      const start = Math.min(Math.max(0, pick - room + 1), Math.max(0, groupOptions.length - room));
+      const options = groupOptions.slice(start, start + room).map((o, i) => {
+        const on = start + i === pick;
+        const members = groups[o.name] ?? [];
+        const already = members.length > 0 && ids.every((id) => members.includes(id));
+        return (
+          <Text>
+            <Text color="cyan">{on ? "› " : "  "}</Text>
+            {o.create ? (
+              <Text color={on ? "green" : undefined} bold={on}>+ create "{fit(o.name, inner - 14).trimEnd()}"</Text>
+            ) : (
+              <>
+                <Text color={on ? "cyan" : undefined} bold={on}>{fit(o.name, inner - 20).trimEnd()}</Text>
+                <Text dimColor> {members.length}</Text>
+                {already && <Text dimColor> ✓ already in</Text>}
+              </>
+            )}
+          </Text>
+        );
+      });
+      return {
+        title: `Add ${what} to group`,
+        rows: [
+          inputRow("› ", (v) => (setInput(v), setPick(0))),
+          <Text dimColor>{"─".repeat(inner)}</Text>,
+          ...(options.length ? options : [<Text dimColor>No groups yet. Type a name to create one.</Text>]),
+          <Text> </Text>,
+          hintRow("↑↓ pick · Tab complete · Enter add · Esc cancel"),
+        ],
+      };
+    }
+  }
 
   return (
     <Box flexDirection="column" height={termRows}>
@@ -421,31 +536,35 @@ export function App({ initialCwd, initialQuery = "", onLaunch }: AppProps) {
       </Box>
       <Box>
         {(split || mode !== "preview") && (
-          <SessionList rows={rows} cursor={cursor} offset={listOffset} height={bodyH} width={listW} stars={stars} marked={marked} focused={mode !== "preview"} grouped={grouped} />
+          <SessionList rows={rows} cursor={cursor} offset={listOffset} height={bodyH} width={listW} stars={stars} marked={marked} focused={mode !== "preview" && !dialog} grouped={grouped} />
         )}
         {(split || mode === "preview") && row && (
           <Preview lines={previewLines} scroll={Math.min(previewScroll, maxScroll)} height={bodyH} width={previewW} focused={mode === "preview"} />
         )}
+        {dialog && (
+          <Modal
+            title={dialog.title}
+            color={dialog.color}
+            rows={dialog.rows}
+            width={dialogW}
+            top={Math.max(0, Math.floor((bodyH + 2 - dialogH) / 2))}
+            left={Math.max(0, Math.floor((columns - dialogW) / 2))}
+          />
+        )}
       </Box>
       <Box>
-        {inputPrompt !== undefined ? (
+        {mode === "search" ? (
           <>
-            <Text color={mode === "delete" ? "red" : "cyan"}>{inputPrompt}</Text>
-            {mode === "search" ? (
-              <TextInput value={query} onChange={(v) => (setQuery(v), setCursorKey(undefined))} onSubmit={() => setMode("list")} />
-            ) : (
-              <TextInput value={input} onChange={setInput} onSubmit={submitInput} />
-            )}
+            <Text color="cyan">/</Text>
+            <TextInput value={query} onChange={(v) => (setQuery(v), setCursorKey(undefined))} onSubmit={() => setMode("list")} />
           </>
-        ) : mode === "dissolve" && header ? (
-          <Text color="yellow">Dissolve group "{header.group}"? Its sessions are kept. (y/N)</Text>
         ) : status ? (
           <Text color={status.error ? "red" : "green"} wrap="truncate">
             {status.text}
           </Text>
         ) : (
           <Text dimColor wrap="truncate">
-            {hint}
+            {dialog ? "" : hint}
           </Text>
         )}
       </Box>
