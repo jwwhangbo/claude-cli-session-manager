@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /**
  * Opens the csm picker in a new terminal surface. Everything is launched as an argv array
@@ -32,8 +32,8 @@ const TERMINALS: Record<string, string[]> = {
 };
 
 /** Env vars that would make the resumed `claude` think it is nested inside this Claude Code session. */
-function cleanEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+function cleanEnv(source = process.env): NodeJS.ProcessEnv {
+  const env = { ...source };
   for (const key of Object.keys(env)) {
     if (key === "CLAUDECODE" || key === "CLAUDE_PID" || key === "CLAUDE_EFFORT" || key.startsWith("CLAUDE_CODE_")) delete env[key];
   }
@@ -61,7 +61,19 @@ function fromOverride(spec: string, argv: string[]): string[] {
   return [...parts, ...flags, ...argv];
 }
 
-function candidates(argv: string[], cwd: string, env = process.env): [label: string, cmd: string[]][] {
+const isSsh = (env: NodeJS.ProcessEnv) => !!(env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY);
+
+/**
+ * Whether a new desktop terminal window would actually show up in front of the user. Over SSH a
+ * window would open on the remote machine's screen (or fail with "can't open display"), except
+ * with X forwarding (`ssh -X`), which sets DISPLAY.
+ */
+function canOpenWindow(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): boolean {
+  if (platform === "win32" || platform === "darwin") return !isSsh(env);
+  return !!(env.DISPLAY || env.WAYLAND_DISPLAY);
+}
+
+function candidates(argv: string[], cwd: string, env = process.env, platform = process.platform): [label: string, cmd: string[]][] {
   const list: [string, string[]][] = [];
   if (env.CSM_TERMINAL) list.push([`CSM_TERMINAL (${env.CSM_TERMINAL})`, fromOverride(env.CSM_TERMINAL, argv)]);
   if (env.TMUX) {
@@ -71,13 +83,15 @@ function candidates(argv: string[], cwd: string, env = process.env): [label: str
   }
   if (env.ZELLIJ) list.push(["zellij floating pane", ["zellij", "run", "--floating", "--close-on-exit", "--cwd", cwd, "--", ...argv]]);
 
-  if (process.platform === "win32") {
+  if (!canOpenWindow(env, platform)) return list;
+
+  if (platform === "win32") {
     list.push(["Windows Terminal", ["wt.exe", "-d", cwd, ...argv]]);
     // A detached process gets its own console window on Windows.
     list.push(["new console window", argv]);
     return list;
   }
-  if (process.platform === "darwin") {
+  if (platform === "darwin") {
     const app = env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : env.TERM_PROGRAM === "WezTerm" ? "WezTerm" : env.TERM_PROGRAM === "ghostty" ? "Ghostty" : "Terminal";
     list.push([app, ["open", "-a", app, commandFile(argv, cwd)]]);
     return list;
@@ -98,28 +112,61 @@ function commandFile(argv: string[], cwd: string): string {
   return file;
 }
 
-/** Resolves true once the process has started, false if the executable does not exist. */
-function trySpawn(cmd: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+/** How long a launched terminal must survive to count as opened; "can't open display" failures exit sooner. */
+const EARLY_EXIT_MS = 700;
+
+/**
+ * Resolves undefined once the terminal is up, or the reason it failed. A quick exit with code 0 counts
+ * as success: kitty and gnome-terminal hand the window to an already-running instance and exit.
+ */
+function trySpawn(cmd: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
   return new Promise((resolve) => {
     const child = spawn(cmd[0]!, cmd.slice(1), { cwd, env, detached: true, stdio: "ignore", windowsHide: false });
-    child.once("error", () => resolve(false));
+    child.once("error", (err: NodeJS.ErrnoException) => resolve(err.code === "ENOENT" ? "not installed" : err.message));
     child.once("spawn", () => {
-      child.unref();
-      resolve(true);
+      const timer = setTimeout(() => {
+        child.removeAllListeners("exit");
+        child.unref();
+        resolve(undefined);
+      }, EARLY_EXIT_MS);
+      child.once("exit", (code, signal) => {
+        clearTimeout(timer);
+        resolve(code === 0 ? undefined : signal ? `killed by ${signal}` : `exited with code ${code}`);
+      });
     });
   });
 }
 
-/** Opens `csm [args]` in a new terminal, re-running this same runtime and bundle so PATH does not matter. */
-export async function openInTerminal(args: string[], cwd = process.cwd()): Promise<OpenResult> {
-  const argv = [process.execPath, process.argv[1]!, ...args];
-  const env = cleanEnv();
-  const tried: string[] = [];
-  for (const [label, cmd] of candidates(argv, cwd)) {
-    if (await trySpawn(cmd, cwd, env)) return { via: label };
-    tried.push(label);
-  }
-  throw new Error(`Could not find a terminal to open (tried: ${tried.join(", ")}). Set CSM_TERMINAL, e.g. CSM_TERMINAL="alacritty -e".`);
+/** An absolute command for running the picker by hand, so it works without csm on PATH. */
+function manualCommand(): string {
+  const bin = join(dirname(process.argv[1]!), "..", "bin", "csm");
+  return existsSync(bin) ? bin : `${process.execPath} ${process.argv[1]}`;
 }
 
-export const _test = { candidates, fromOverride, currentTerminal, cleanEnv };
+function noWindowMessage(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, tried: string[]): string {
+  const manual = manualCommand();
+  const triedNote = tried.length ? ` (tried: ${tried.join(", ")})` : "";
+  if (isSsh(env) && !canOpenWindow(env, platform)) {
+    return `You're connected over SSH without a display, so csm can't open a new window${triedNote}. Start Claude inside tmux or zellij on this machine to get a popup, or run the picker from another SSH session: ${manual}`;
+  }
+  if (!canOpenWindow(env, platform)) {
+    return `No graphical display (DISPLAY and WAYLAND_DISPLAY are unset), so csm can't open a new window${triedNote}. Run Claude inside tmux or zellij to get a popup, or run the picker in another terminal: ${manual}`;
+  }
+  return `Could not open a terminal${triedNote}. Set CSM_TERMINAL, e.g. CSM_TERMINAL="alacritty -e", or run the picker in another terminal: ${manual}`;
+}
+
+/** Opens `csm [args]` in a new terminal, re-running this same runtime and bundle so PATH does not matter. */
+export async function openInTerminal(args: string[], cwd = process.cwd(), env = process.env, platform = process.platform): Promise<OpenResult> {
+  const argv = [process.execPath, process.argv[1]!, ...args];
+  const childEnv = cleanEnv(env);
+  const tried: string[] = [];
+  for (const [label, cmd] of candidates(argv, cwd, env, platform)) {
+    const failure = await trySpawn(cmd, cwd, childEnv);
+    if (!failure) return { via: label };
+    // Absent emulators are just probing noise; only report the ones that actually ran and failed.
+    if (failure !== "not installed") tried.push(`${label}: ${failure}`);
+  }
+  throw new Error(noWindowMessage(env, platform, tried));
+}
+
+export const _test = { candidates, fromOverride, currentTerminal, cleanEnv, canOpenWindow, trySpawn };

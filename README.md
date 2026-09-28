@@ -48,6 +48,8 @@ Claude Code owns its terminal, so the picker can't draw inside it. `/sessions` r
 
 `csm open` never builds a shell command. It passes an argument list straight to the terminal and re-runs the same Node/Bun binary and bundle, so it works whatever your shell is (bash, zsh, fish, nushell, PowerShell) and doesn't need `csm` on PATH. It also clears Claude Code's session variables, so pressing Enter in the picker starts a normal, non-nested `claude --resume`.
 
+**Over SSH**, a new window can't reach your screen, so `csm open` only uses a tmux popup or zellij floating pane on the remote machine. With `ssh -X` it also tries a forwarded X11 window. Without either, `/sessions` explains this and prints the absolute path of `csm`, which you can run from a second SSH session. Running `csm` directly in any SSH shell always works.
+
 To pick the terminal yourself, set `CSM_TERMINAL` to the command that precedes the program, for example `"alacritty -e"`, `"wezterm start --"` or `"foot"`. Use `{}` to place the program in the middle. You can set it in the `env` block of your Claude Code `settings.json`.
 
 Other forms: `/sessions here` (picker for this project only), `/sessions <query>` (search results in chat), and `/sessions list | show <id> | export <id> | rename <id> <title>`.
