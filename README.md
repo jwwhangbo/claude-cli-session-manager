@@ -11,9 +11,11 @@ A Claude Code plugin that ships `csm`, a prebuilt [Ink](https://github.com/vadim
 ## Install
 
 ```sh
-claude plugin marketplace add <this repo URL or local path>
+claude plugin marketplace add jwwhangbo/claude-cli-session-manager
 claude plugin install claude-session-manager@claude-session-manager
 ```
+
+Inside a Claude Code session, the same commands work as `/plugin marketplace add jwwhangbo/claude-cli-session-manager` and `/plugin install claude-session-manager@claude-session-manager`. To update later, run `claude plugin marketplace update claude-session-manager` and then `claude plugin update claude-session-manager@claude-session-manager`.
 
 Inside Claude Code, run `/sessions` to open the picker in a new window. To also run `csm` from your own shell, link it once:
 
@@ -78,7 +80,10 @@ When sessions are selected, `s`, `t`, `a`, `d` and `e` apply to all of them, inc
 ## Development
 
 ```sh
+git clone https://github.com/jwwhangbo/claude-cli-session-manager.git
+cd claude-cli-session-manager
 bun install
+claude --plugin-dir . # try the plugin from this checkout without installing it
 bun run dev          # run from source
 bun test
 bun run typecheck
