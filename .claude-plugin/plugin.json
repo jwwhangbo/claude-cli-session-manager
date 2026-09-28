@@ -1,9 +1,9 @@
 {
   "name": "claude-session-manager",
   "description": "A better session manager: `csm` TUI with cross-project fuzzy search, rich transcript preview, rename/tag/star/archive/delete/export, and resume or fork in the original directory. Plus /sessions to search sessions from chat.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
-    "name": "team_lab@smsoft.kr"
+    "name": "jwwhangbo@gmail.com"
   },
   "keywords": ["sessions", "resume", "history", "tui", "ink"]
 }
