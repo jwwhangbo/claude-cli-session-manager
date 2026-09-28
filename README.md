@@ -49,7 +49,14 @@ To pick the terminal yourself, set `CSM_TERMINAL` to the command that precedes t
 
 Other forms: `/sessions here` (picker for this project only), `/sessions <query>` (search results in chat), and `/sessions list | show <id> | export <id> | rename <id> <title>`.
 
-In the picker, press `?` to see every key: `/` search, `Enter` resume, `f` fork, `Tab` preview, `p`/`b` project/branch filter, `s` star, `t` tag, `r` rename, `a` archive, `A` archive view, `d` delete, `e` export, `q` quit.
+In the picker, press `?` to see every key:
+- **Move:** `j`/`k` or `↑`/`↓`; `→`/`l` focuses the preview and `←`/`h` goes back to the list
+- **Open:** `/` search, `Enter` resume, `f` fork
+- **Filter:** `p`/`b` project/branch, `*` starred only, `A` archive view
+- **Select:** `Tab` selects and moves down, `Shift+Tab` deselects and moves up, `Ctrl+A` selects all visible, `Esc` clears the selection
+- **Act:** `s` star, `t` tag, `r` rename, `a` archive, `d` delete, `e` export; `q` quits
+
+When sessions are selected, `s`, `t`, `a`, `d` and `e` apply to all of them, including ones hidden by the current filter. Sessions open in a running Claude Code are skipped and counted in the status line. `r`, `Enter` and `f` always act on the row under the cursor.
 
 ## Development
 

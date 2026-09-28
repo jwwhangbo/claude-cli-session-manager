@@ -21,11 +21,17 @@ export function saveMeta(meta: CsmMeta) {
   writeFileSync(metaFile(), JSON.stringify(meta, null, 2));
 }
 
-export function toggleStar(id: string): boolean {
+export function setStarred(ids: string[], starred: boolean) {
   const meta = loadMeta();
-  const starred = !meta.stars[id];
-  if (starred) meta.stars[id] = true;
-  else delete meta.stars[id];
+  for (const id of ids) {
+    if (starred) meta.stars[id] = true;
+    else delete meta.stars[id];
+  }
   saveMeta(meta);
+}
+
+export function toggleStar(id: string): boolean {
+  const starred = !loadMeta().stars[id];
+  setStarred([id], starred);
   return starred;
 }
