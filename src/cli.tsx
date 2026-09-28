@@ -1,11 +1,12 @@
 import { render } from "ink";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { exportSession, renameSession, sessionToMarkdown } from "./core/actions.ts";
 import { findSession, loadSessions, type SessionRecord } from "./core/index.ts";
 import { launchClaude, type LaunchRequest } from "./core/launch.ts";
 import { addToGroup, dissolveGroup, groupsBySession, loadMeta, removeFromGroup, renameGroup } from "./core/meta.ts";
+import { installCli, uninstallCli } from "./core/install.ts";
 import { openInTerminal } from "./core/open.ts";
 import { parseTranscript } from "./core/parse.ts";
 import { shortPath } from "./core/paths.ts";
@@ -30,6 +31,9 @@ Usage:
   csm group dissolve <name>    delete a group; its sessions are kept
   csm open [--here] [query]    open the picker in a new terminal window, tmux popup or zellij pane
                                (for use from inside Claude Code; override with CSM_TERMINAL="alacritty -e")
+  csm install [--dir <dir>] [--force]
+                               put csm on your shell's PATH (default ~/.local/bin); it follows plugin updates
+  csm uninstall [--dir <dir>]  remove it again
 
 <id> may be any unique prefix of a session id.`;
 
@@ -44,12 +48,14 @@ const { values: opts, positionals } = parseArgs({
     json: { type: "boolean" },
     fork: { type: "boolean" },
     output: { type: "string", short: "o" },
+    dir: { type: "string" },
+    force: { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },
 });
 
-const COMMANDS = new Set(["list", "search", "show", "export", "rename", "resume", "open", "group"]);
+const COMMANDS = new Set(["list", "search", "show", "export", "rename", "resume", "open", "group", "install", "uninstall"]);
 
 function printList(sessions: SessionRecord[]) {
   const limit = opts.limit ? Number(opts.limit) : opts.json ? Infinity : 30;
@@ -133,6 +139,24 @@ async function main() {
     const project = opts.here ? process.cwd() : opts.project && resolve(opts.project);
     const { via } = await openInTerminal([...(project ? ["--project", project] : []), ...rest]);
     return console.log(`Opened the csm picker (${via}).`);
+  }
+
+  if (command === "install") {
+    const r = installCli({ dir: opts.dir, force: opts.force });
+    const lines = [`Installed csm at ${r.file}.`];
+    lines.push(
+      r.tracksPlugin
+        ? "It runs whichever plugin version Claude Code has installed, so /plugin update updates it too."
+        : `It's pinned to this checkout (${resolve(process.argv[1]!, "..", "..")}), not the installed plugin.`,
+    );
+    if (r.pathHint) lines.push(`${dirname(r.file)} isn't on your PATH. Add it with:\n  ${r.pathHint}\nthen open a new terminal.`);
+    else if (r.shadowedBy) lines.push(`Warning: ${r.shadowedBy} comes first on your PATH, so \`csm\` runs that one instead.`);
+    else lines.push("Run `csm` in any terminal to open the picker.");
+    return console.log(lines.join("\n"));
+  }
+  if (command === "uninstall") {
+    const file = uninstallCli({ dir: opts.dir });
+    return console.log(file ? `Removed ${file}.` : "csm isn't installed there; nothing to remove.");
   }
 
   const sessions = loadSessions();

@@ -17,11 +17,12 @@ claude plugin install claude-session-manager@claude-session-manager
 
 Inside a Claude Code session, the same commands work as `/plugin marketplace add jwwhangbo/claude-cli-session-manager` and `/plugin install claude-session-manager@claude-session-manager`. To update later, run `claude plugin marketplace update claude-session-manager` and then `claude plugin update claude-session-manager@claude-session-manager`.
 
-Inside Claude Code, run `/sessions` to open the picker in a new window. To also run `csm` from your own shell, link it once:
+Inside Claude Code, run `/sessions` to open the picker in a new window.
 
-```sh
-ln -s ~/.claude/plugins/cache/claude-session-manager/claude-session-manager/*/bin/csm ~/.local/bin/csm
-```
+To also run `csm` from your own terminal, run `/install-cli` in Claude Code once (or `csm install` from Claude's Bash tool). It writes a small `csm` script to `~/.local/bin`. That script runs whichever plugin version Claude Code has installed, so `/plugin update` updates it too. If that directory isn't on your PATH, it prints the line to add for your shell. Options:
+- `/install-cli --dir <dir>` installs somewhere else.
+- `/install-cli uninstall` removes it.
+- Running it again repairs or updates the script.
 
 You need Node.js 22+ or Bun.
 
@@ -37,6 +38,7 @@ csm rename <id> <title>
 csm resume <id> [--fork]
 csm group list | add <name> <id>… | rm <name> <id>… | rename <old> <new> | dissolve <name>
 csm open [--here] [query]   # picker in a new terminal window / tmux popup
+csm install [--dir <dir>] [--force] | csm uninstall [--dir <dir>]
 ```
 
 ### From inside Claude Code
