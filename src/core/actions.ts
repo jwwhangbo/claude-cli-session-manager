@@ -1,9 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { SessionRecord } from "./index.ts";
-import { loadMeta, saveMeta } from "./meta.ts";
+import { forgetSession } from "./meta.ts";
 import { parseTranscript } from "./parse.ts";
-import { archiveDir, claudeDir, projectsDir, shortPath } from "./paths.ts";
+import { archiveDir, claudeDir, cleanText, projectsDir, shortPath } from "./paths.ts";
 
 function assertIdle(s: SessionRecord) {
   if (s.running) throw new Error("Session is open in a running Claude Code process; close it first.");
@@ -12,13 +12,13 @@ function assertIdle(s: SessionRecord) {
 /** Same entry `/rename` writes, so the title shows up in the built-in /resume picker too. */
 export function renameSession(s: SessionRecord, title: string) {
   assertIdle(s);
-  appendFileSync(s.file, JSON.stringify({ type: "custom-title", customTitle: title.trim(), sessionId: s.id }) + "\n");
+  appendFileSync(s.file, JSON.stringify({ type: "custom-title", customTitle: cleanText(title), sessionId: s.id }) + "\n");
 }
 
 /** Same entry the built-in session tag writes; an empty tag clears it. */
 export function tagSession(s: SessionRecord, tag: string) {
   assertIdle(s);
-  appendFileSync(s.file, JSON.stringify({ type: "tag", tag: tag.trim(), sessionId: s.id }) + "\n");
+  appendFileSync(s.file, JSON.stringify({ type: "tag", tag: cleanText(tag), sessionId: s.id }) + "\n");
 }
 
 /** Moves the .jsonl plus its sibling <id>/ dir (tool results, subagents) between projects/ and the csm archive. */
@@ -44,11 +44,7 @@ export function deleteSession(s: SessionRecord) {
   rmSync(join(dirname(s.file), s.id), { recursive: true, force: true });
   rmSync(join(claudeDir(), "file-history", s.id), { recursive: true, force: true });
   rmSync(s.file, { force: true });
-  const meta = loadMeta();
-  if (meta.stars[s.id]) {
-    delete meta.stars[s.id];
-    saveMeta(meta);
-  }
+  forgetSession(s.id);
 }
 
 export function sessionToMarkdown(s: SessionRecord): string {

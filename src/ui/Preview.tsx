@@ -2,7 +2,7 @@ import { Box, Text } from "ink";
 import type { SessionRecord } from "../core/index.ts";
 import type { TranscriptItem } from "../core/parse.ts";
 import { shortPath } from "../core/paths.ts";
-import { compactNum, fit, wrap } from "./format.ts";
+import { compactNum, fit, relTime, wrap } from "./format.ts";
 
 export interface Line {
   text: string;
@@ -13,7 +13,7 @@ export interface Line {
 
 const MAX_TOOLS_SHOWN = 4;
 
-export function buildPreviewLines(s: SessionRecord, transcript: TranscriptItem[] | undefined, width: number): Line[] {
+export function buildPreviewLines(s: SessionRecord, transcript: TranscriptItem[] | undefined, width: number, groups: string[] = []): Line[] {
   const lines: Line[] = [];
   const kv = (k: string, v: string | undefined) => v && lines.push({ text: fit(`${k.padEnd(8)}${v}`, width), dim: false });
   for (const l of wrap(s.title, width)) lines.push({ text: l, bold: true, color: "cyan" });
@@ -27,6 +27,7 @@ export function buildPreviewLines(s: SessionRecord, transcript: TranscriptItem[]
   if (s.costUSD) kv("cost", `$${s.costUSD.toFixed(2)}`);
   kv("tag", s.tag);
   kv("agent", s.agentName);
+  kv("groups", groups.join(", ") || undefined);
   kv("next", s.continuedIn && `continued in ${s.continuedIn}`);
   if (s.filesTouched.length) {
     kv("files", `${s.filesTouched.length} edited`);
@@ -48,6 +49,25 @@ export function buildPreviewLines(s: SessionRecord, transcript: TranscriptItem[]
     for (const tool of item.tools.slice(0, MAX_TOOLS_SHOWN)) lines.push({ text: fit(`  ⚙ ${tool}`, width), dim: true });
     if (item.tools.length > MAX_TOOLS_SHOWN) lines.push({ text: `  ⚙ … ${item.tools.length - MAX_TOOLS_SHOWN} more tool calls`, dim: true });
     lines.push({ text: "" });
+  }
+  return lines;
+}
+
+/** Preview for a group header: aggregate stats and the member list. */
+export function buildGroupLines(name: string, members: SessionRecord[], width: number): Line[] {
+  const lines: Line[] = [{ text: fit(name, width), bold: true, color: "magenta" }];
+  const projects = new Set(members.map((s) => s.cwd));
+  const out = members.reduce((n, s) => n + s.tokens.output, 0);
+  const cost = members.reduce((n, s) => n + (s.costUSD ?? 0), 0);
+  const kv = (k: string, v: string) => lines.push({ text: fit(`${k.padEnd(9)}${v}`, width) });
+  kv("sessions", String(members.length));
+  kv("projects", [...projects].map((p) => shortPath(p)).join(", "));
+  if (members.length) kv("age", `oldest ${relTime(Math.min(...members.map((s) => s.created)))} · latest ${relTime(Math.max(...members.map((s) => s.updated)))}`);
+  kv("output", `${compactNum(out)} tokens${cost ? ` · $${cost.toFixed(2)}` : ""}`);
+  lines.push({ text: "─".repeat(width), dim: true });
+  for (const s of members) {
+    lines.push({ text: fit(s.title, width), bold: s.titleSource === "custom" });
+    lines.push({ text: fit(`  ${shortPath(s.cwd)}${s.gitBranch ? ` · ${s.gitBranch}` : ""} · ${relTime(s.updated)} · ${s.messageCount} msgs`, width), dim: true });
   }
   return lines;
 }

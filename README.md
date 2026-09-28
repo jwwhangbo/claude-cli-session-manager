@@ -27,12 +27,13 @@ You need Node.js 22+ or Bun.
 
 ```
 csm [query]                  interactive picker (--here: current project only)
-csm list [--here|--project <dir>] [--archived] [--limit N] [--json]
+csm list [--here|--project <dir>] [--group <name>] [--archived] [--limit N] [--json]
 csm search <query> [--json]
 csm show <id> [--json]
 csm export <id> [-o file]
 csm rename <id> <title>
 csm resume <id> [--fork]
+csm group list | add <name> <id>… | rm <name> <id>… | rename <old> <new> | dissolve <name>
 csm open [--here] [query]   # picker in a new terminal window / tmux popup
 ```
 
@@ -54,7 +55,23 @@ In the picker, press `?` to see every key:
 - **Open:** `/` search, `Enter` resume, `f` fork
 - **Filter:** `p`/`b` project/branch, `*` starred only, `A` archive view
 - **Select:** `Tab` selects and moves down, `Shift+Tab` deselects and moves up, `Ctrl+A` selects all visible, `Esc` clears the selection
-- **Act:** `s` star, `t` tag, `r` rename, `a` archive, `d` delete, `e` export; `q` quits
+- **Act:** `s` star, `t` tag, `r` rename, `a` archive, `d` delete, `e` export, `+`/`-` add to or remove from a group, `v` grouped view; `q` quits
+
+### Groups
+
+Groups are named collections you create yourself, for example one per feature or ticket. A session can be in several groups.
+- **Create or add:** select sessions with `Tab` (or leave the cursor on one), press `+` and type a group name. An existing name adds to that group; a new name creates it.
+- **Grouped view:** `v` switches between flat and grouped. Groups are listed by most recent activity, with **Ungrouped** last.
+- **On a group header:**
+  - `Enter`/`Space` collapses or expands it (collapsed state is remembered).
+  - `Tab` selects the whole group.
+  - `r` renames it; renaming onto an existing name merges the two groups.
+  - `d` dissolves it. Only the group is removed; its sessions are kept.
+  - `s`, `t`, `a`, `e` and `+` act on every session in the group.
+- **Remove:** `-` takes the cursor or selected sessions out of the group the cursor is under. In the flat view it takes them out of every group.
+- **Search:** `/` also matches group names, and groups stay expanded while a search is active.
+
+Groups are csm-only: they're stored in `~/.claude/csm/meta.json`, so the built-in `/resume` doesn't see them. For a label that `/resume` does show, use the native tag (`t`).
 
 When sessions are selected, `s`, `t`, `a`, `d` and `e` apply to all of them, including ones hidden by the current filter. Sessions open in a running Claude Code are skipped and counted in the status line. `r`, `Enter` and `f` always act on the row under the cursor.
 

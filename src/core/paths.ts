@@ -20,3 +20,6 @@ export const shortPath = (p: string) => {
   const home = homedir();
   return p.startsWith(home) ? "~" + p.slice(home.length) : p;
 };
+
+/** Single-line user text: control chars (e.g. a stray Ctrl+U from the terminal) dropped, whitespace collapsed. */
+export const cleanText = (s: string) => s.replace(/\p{Cc}/gu, "").replace(/\s+/g, " ").trim();

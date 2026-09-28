@@ -7,9 +7,12 @@ export interface Filters {
   query?: string;
   cwd?: string;
   branch?: string;
+  group?: string;
   starredOnly?: boolean;
   showArchived?: boolean;
   stars?: Record<string, true>;
+  /** Session id → group names, from groupsBySession(). Lets search and `group` match on groups. */
+  groupsOf?: Map<string, string[]>;
 }
 
 /** Filtered sessions: newest first, or by fuzzy relevance while a query is active. */
@@ -19,9 +22,11 @@ export function filterSessions(sessions: SessionRecord[], f: Filters): SessionRe
       (f.showArchived ? s.archived : !s.archived) &&
       (!f.cwd || s.cwd === f.cwd) &&
       (!f.branch || s.gitBranch === f.branch) &&
+      (!f.group || f.groupsOf?.get(s.id)?.includes(f.group)) &&
       (!f.starredOnly || f.stars?.[s.id]),
   );
   const query = f.query?.trim();
   if (!query) return pool;
-  return fuzzysort.go(query, pool, { keys: KEYS as unknown as string[], threshold: 0.3 }).map((r) => r.obj);
+  const groupKey = (s: SessionRecord) => f.groupsOf?.get(s.id)?.join(" ") ?? "";
+  return fuzzysort.go(query, pool, { keys: [...KEYS, groupKey] as any, threshold: 0.3 }).map((r) => r.obj);
 }
