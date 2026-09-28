@@ -1,0 +1,31 @@
+{
+  "name": "claude-session-manager",
+  "version": "0.1.0",
+  "description": "A better session manager for Claude Code: cross-project search, rich preview, rename/tag/star/archive, resume and fork.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "csm": "bin/csm"
+  },
+  "scripts": {
+    "dev": "bun src/cli.tsx",
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "fuzzysort": "^4.0.2",
+    "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.3.0",
+    "string-width": "^8.3.0",
+    "wrap-ansi": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  }
+}

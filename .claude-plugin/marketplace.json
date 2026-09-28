@@ -1,0 +1,14 @@
+{
+  "name": "claude-session-manager",
+  "description": "Claude Code session manager plugin with a bundled Ink TUI (csm).",
+  "owner": {
+    "name": "team_lab@smsoft.kr"
+  },
+  "plugins": [
+    {
+      "name": "claude-session-manager",
+      "source": "./",
+      "description": "A better session manager for Claude Code with a bundled Ink TUI (csm)."
+    }
+  ]
+}
