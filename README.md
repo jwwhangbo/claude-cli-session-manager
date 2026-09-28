@@ -36,6 +36,10 @@ csm show <id> [--json]
 csm export <id> [-o file]
 csm rename <id> <title>
 csm resume <id> [--fork]
+csm tag <tag> <id>… | untag <id>…
+csm star <id>… | unstar <id>…
+csm archive <id>… | restore <id>…
+csm delete <id>… --yes      # without --yes it only lists what would be deleted
 csm group list | add <name> <id>… | rm <name> <id>… | rename <old> <new> | dissolve <name>
 csm open [--here] [query]   # picker in a new terminal window / tmux popup
 csm install [--dir <dir>] [--force] | csm uninstall [--dir <dir>]
@@ -64,6 +68,12 @@ In the picker, press `?` to see every key:
 - **Act:** `s` star, `t` tag, `r` rename, `a` archive, `d` delete, `e` export, `+`/`-` add to or remove from a group, `v` grouped view; `q` quits
 
 Rename, tag, group and delete open a floating dialog over the list. Confirmations (delete, dissolve a group) take `y` to go ahead, and `n` or `Esc` to cancel.
+
+### Asking Claude to organize sessions
+
+The plugin includes an `organize-sessions` skill, so you can ask in plain words: "find the session where I fixed the login bug", "group my sessions in this repo by feature" or "clean up my old sessions". Claude reads `csm list --json`, proposes a plan (groups, clearer titles, tags, what to archive), and changes nothing until you approve.
+
+Claude won't delete sessions unless you explicitly ask it to. Cleanup requests archive instead, which you can undo with `csm restore`. When you do ask for deletion, it shows you what `csm delete` would remove and waits for your go-ahead before passing `--yes`.
 
 ### Groups
 

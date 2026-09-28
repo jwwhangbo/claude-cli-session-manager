@@ -2,10 +2,10 @@ import { render } from "ink";
 import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
-import { exportSession, renameSession, sessionToMarkdown } from "./core/actions.ts";
+import { archiveSession, deleteSession, exportSession, renameSession, sessionToMarkdown, tagSession, unarchiveSession } from "./core/actions.ts";
 import { findSession, loadSessions, type SessionRecord } from "./core/index.ts";
 import { launchClaude, type LaunchRequest } from "./core/launch.ts";
-import { addToGroup, dissolveGroup, groupsBySession, loadMeta, removeFromGroup, renameGroup } from "./core/meta.ts";
+import { addToGroup, dissolveGroup, groupsBySession, loadMeta, removeFromGroup, renameGroup, setStarred } from "./core/meta.ts";
 import { installCli, uninstallCli } from "./core/install.ts";
 import { openInTerminal } from "./core/open.ts";
 import { parseTranscript } from "./core/parse.ts";
@@ -24,6 +24,11 @@ Usage:
   csm export <id> [-o file]    write the transcript to a markdown file
   csm rename <id> <title>      set the title shown here and in /resume
   csm resume <id> [--fork]     resume in the session's original directory
+  csm tag <tag> <id>…          set the native tag (shown in /resume); csm untag <id>… clears it
+  csm star <id>… | unstar <id>…
+  csm archive <id>…            move sessions out of /resume into csm's archive (undo with restore)
+  csm restore <id>…            move archived sessions back
+  csm delete <id>… --yes       permanently delete; without --yes it only lists what would go
   csm group list [--json]      groups with their sessions
   csm group add <name> <id>…   add sessions to a group (creates it)
   csm group rm <name> <id>…    remove sessions from a group
@@ -35,7 +40,7 @@ Usage:
                                put csm on your shell's PATH (default ~/.local/bin); it follows plugin updates
   csm uninstall [--dir <dir>]  remove it again
 
-<id> may be any unique prefix of a session id.`;
+<id> may be any unique prefix of a session id. Sessions open in a running Claude Code are skipped.`;
 
 const { values: opts, positionals } = parseArgs({
   allowPositionals: true,
@@ -47,6 +52,7 @@ const { values: opts, positionals } = parseArgs({
     limit: { type: "string" },
     json: { type: "boolean" },
     fork: { type: "boolean" },
+    yes: { type: "boolean", short: "y" },
     output: { type: "string", short: "o" },
     dir: { type: "string" },
     force: { type: "boolean" },
@@ -55,7 +61,7 @@ const { values: opts, positionals } = parseArgs({
   },
 });
 
-const COMMANDS = new Set(["list", "search", "show", "export", "rename", "resume", "open", "group", "install", "uninstall"]);
+const COMMANDS = new Set(["list", "search", "show", "export", "rename", "resume", "open", "group", "install", "uninstall", "tag", "untag", "star", "unstar", "archive", "restore", "delete"]);
 
 function printList(sessions: SessionRecord[]) {
   const limit = opts.limit ? Number(opts.limit) : opts.json ? Infinity : 30;
@@ -115,6 +121,26 @@ function groupCommand([sub, ...args]: string[], sessions: SessionRecord[]) {
     default:
       throw new Error(`Unknown group command "${sub}".\n\n${USAGE}`);
   }
+}
+
+const plural = (n: number) => `${n} session${n === 1 ? "" : "s"}`;
+const describe = (s: SessionRecord) => `${s.id.slice(0, 8)}  ${fit(shortPath(s.cwd), 30)}  ${s.title}`;
+
+/** Applies fn to each session, reporting (and skipping) the ones it refuses, e.g. running sessions. */
+function bulk(verb: string, prefixes: string[], sessions: SessionRecord[], fn: (s: SessionRecord) => void) {
+  if (!prefixes.length) throw new Error(`Missing <id>.\n\n${USAGE}`);
+  const targets = [...new Map(prefixes.map((p) => findSession(p, sessions)).map((s) => [s.id, s])).values()];
+  let done = 0;
+  for (const s of targets) {
+    try {
+      fn(s);
+      done++;
+    } catch (err) {
+      console.error(`skipped ${s.id.slice(0, 8)}: ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  }
+  console.log(`${verb} ${plural(done)}`);
 }
 
 async function runTui(query: string) {
@@ -187,6 +213,31 @@ async function main() {
       const s = findSession(requireArg(rest[0], "id"), sessions);
       renameSession(s, requireArg(rest.slice(1).join(" "), "title"));
       return console.log(`Renamed ${s.id.slice(0, 8)}`);
+    }
+    case "tag": {
+      const tag = requireArg(rest[0], "tag");
+      return bulk(`Tagged #${tag}:`, rest.slice(1), sessions, (s) => tagSession(s, tag));
+    }
+    case "untag":
+      return bulk("Cleared the tag on", rest, sessions, (s) => tagSession(s, ""));
+    case "star":
+    case "unstar":
+      return bulk(command === "star" ? "Starred" : "Unstarred", rest, sessions, (s) => setStarred([s.id], command === "star"));
+    case "archive":
+      return bulk("Archived", rest, sessions, archiveSession);
+    case "restore":
+      return bulk("Restored", rest, sessions, unarchiveSession);
+    case "delete": {
+      if (!opts.yes) {
+        const targets = [...new Set(rest)].map((p) => findSession(p, sessions));
+        if (!targets.length) throw new Error(`Missing <id>.\n\n${USAGE}`);
+        console.log(`This would permanently delete ${plural(targets.length)}:`);
+        for (const s of targets) console.log(`  ${describe(s)}`);
+        console.log("Nothing was deleted. Re-run with --yes to delete them, or use `csm archive` to set them aside reversibly.");
+        process.exitCode = 1;
+        return;
+      }
+      return bulk("Deleted", rest, sessions, deleteSession);
     }
     case "resume": {
       const s = findSession(requireArg(rest[0], "id"), sessions);
